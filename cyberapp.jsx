@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CENARIOS_POOL, PERSONAGENS_POOL } from './src/assets';
+import { useFirebaseSync, firebaseWrite } from './src/useFirebaseSync';
+import { db, ref, set, onValue } from './src/firebase';
 
 // ============== ESTILO GLOBAL (injetado uma vez) ==============
 const GlobalStyle = () => (
@@ -288,14 +290,19 @@ const isSlotLockedByOther = (slotId, tabId) => {
 const acquireProfileLock = (slotId, tabId) => {
   try {
     if (isSlotLockedByOther(slotId, tabId)) return false;
-    window.localStorage.setItem(profileLockKey(slotId), JSON.stringify({ tabId, ts: Date.now() }));
+    const lockData = { tabId, ts: Date.now() };
+    window.localStorage.setItem(profileLockKey(slotId), JSON.stringify(lockData));
+    firebaseWrite(`shared/locks/${slotId}`, lockData);
     return true;
   } catch (e) { return true; }
 };
 const releaseProfileLock = (slotId, tabId) => {
   try {
     const raw = window.localStorage.getItem(profileLockKey(slotId));
-    if (raw && JSON.parse(raw).tabId === tabId) window.localStorage.removeItem(profileLockKey(slotId));
+    if (raw && JSON.parse(raw).tabId === tabId) {
+      window.localStorage.removeItem(profileLockKey(slotId));
+      firebaseWrite(`shared/locks/${slotId}`, null);
+    }
   } catch (e) {}
 };
 // Aliases legados (mantém código antigo funcionando até refatorar).
@@ -16259,6 +16266,17 @@ export default function CyberApp() {
   }, [activeProfile]);
   useEffect(() => { try { window.localStorage.setItem('cyberapp:livePlayersByMesa', JSON.stringify(livePlayersByMesa)); } catch (e) {} }, [livePlayersByMesa]);
 
+  // ===== FIREBASE SYNC — sincroniza estado entre dispositivos diferentes =====
+  useFirebaseSync('shared/mesas', mesas, setMesas, { enabled: true });
+  useFirebaseSync('shared/mesaStates', mesaStates, setMesaStates, { enabled: true });
+  useFirebaseSync('shared/gmActiveMesaId', gmActiveMesaId, setGmActiveMesaId, { enabled: true });
+  useFirebaseSync('shared/livePlayersByMesa', livePlayersByMesa, setLivePlayersByMesa, { enabled: true });
+  useFirebaseSync('shared/presenceTs', presenceTimestamps, setPresenceTimestamps, { enabled: true });
+  const playerFirebasePath = activeProfile ? `players/${activeProfile}/joinedMesaIds` : null;
+  const playerByMesaFirebasePath = activeProfile ? `players/${activeProfile}/playerByMesa` : null;
+  useFirebaseSync(playerFirebasePath, joinedMesaIds, setJoinedMesaIds, { enabled: !!activeProfile });
+  useFirebaseSync(playerByMesaFirebasePath, playerByMesa, setPlayerByMesa, { enabled: !!activeProfile });
+
   // Quando o GM sai de uma mesa (gmActiveMesaId vira null OU muda para outra),
   // qualquer jogador que ainda esteja nessa mesa é expulso de volta pra lista de mesas.
   const lastGmActiveRef = useRef(gmActiveMesaId);
@@ -16524,9 +16542,35 @@ export default function CyberApp() {
       storage.set('cyberapp-shared', next);
       // Sincroniza com outras abas
       broadcastShared(next);
+      // Sincroniza com Firebase (cross-device)
+      if (activeMesaId) {
+        firebaseWrite(`shared/mesaShared/${activeMesaId}`, next);
+      }
       return next;
     });
   };
+
+  // Firebase listener para o estado compartilhado da mesa ativa (cross-device sync)
+  const firebaseSharedUnsub = useRef(null);
+  useEffect(() => {
+    if (!activeMesaId) return;
+    const dbRef = ref(db, `shared/mesaShared/${activeMesaId}`);
+    const unsub = onValue(dbRef, (snapshot) => {
+      const val = snapshot.val();
+      if (!val || !val.version) return;
+      // Merge inteligente: aceita estado remoto se tem log/chat mais longo
+      setSharedState(prev => {
+        const remoteScore = (val.log?.length || 0) + Object.values(val.chats || {}).reduce((a, c) => a + (c.messages?.length || 0), 0);
+        const localScore = (prev.log?.length || 0) + Object.values(prev.chats || {}).reduce((a, c) => a + (c.messages?.length || 0), 0);
+        if (remoteScore >= localScore && JSON.stringify(val) !== JSON.stringify(prev)) {
+          return val;
+        }
+        return prev;
+      });
+    });
+    firebaseSharedUnsub.current = unsub;
+    return () => unsub();
+  }, [activeMesaId]);
 
   const addLog = (entry) => {
     setShared(prev => ({
