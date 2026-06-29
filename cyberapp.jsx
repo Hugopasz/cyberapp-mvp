@@ -16202,6 +16202,7 @@ export default function CyberApp() {
   const profileSlot = PROFILE_SLOTS.find(s => s.id === activeProfile) || null;
   // ID único da aba pro GM-lock (vive enquanto a aba existir).
   const tabIdRef = useRef(`tab-${Date.now()}-${Math.random().toString(36).slice(2,7)}`);
+  const firebaseSharedUnsub = useRef(null);
   const [role, setRole] = useState(profileSlot ? profileSlot.role : null);
   const [screen, setScreen] = useState(
     profileSlot
@@ -16551,7 +16552,6 @@ export default function CyberApp() {
   };
 
   // Firebase listener para o estado compartilhado da mesa ativa (cross-device sync)
-  const firebaseSharedUnsub = useRef(null);
   useEffect(() => {
     if (!activeMesaId) return;
     const dbRef = ref(db, `shared/mesaShared/${activeMesaId}`);

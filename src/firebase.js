@@ -14,4 +14,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
+// Test connection on load
+const testRef = ref(db, '_ping');
+set(testRef, { ts: Date.now() })
+  .then(() => console.log('[Firebase] Connected OK'))
+  .catch(err => console.error('[Firebase] Connection FAILED:', err.message));
+
 export { db, ref, set, onValue, get };
