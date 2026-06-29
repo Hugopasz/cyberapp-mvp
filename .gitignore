@@ -1,0 +1,17 @@
+node_modules/
+dist/
+
+# Imagens originais (as otimizadas em src/assets já bastam)
+Cenários/
+Persongens/
+
+# Arquivos pessoais/auxiliares
+*.xlsx
+*.png
+*.zip
+CYBERAPP NOTAS.txt
+build_planilha.py
+make_pool_xlsx.py
+
+# Claude Code config local
+.claude/
