@@ -1,15 +1,24 @@
-const CACHE_NAME = 'cyberapp-v1';
+const CACHE_NAME = 'cyberapp-v2';
 
-self.addEventListener('install', (e) => {
-  self.skipWaiting();
-});
-
+self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => {
-  e.waitUntil(self.clients.claim());
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener('fetch', (e) => {
   e.respondWith(
-    caches.match(e.request).then((cached) => cached || fetch(e.request))
+    fetch(e.request)
+      .then(res => {
+        if (res.ok && e.request.method === 'GET') {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+        }
+        return res;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
